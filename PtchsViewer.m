@@ -76,6 +76,7 @@ properties(Hidden)
 
     PtchOpts
     im
+    bUp
 end
 properties(Access=private)
     f
@@ -195,16 +196,14 @@ methods(Access=private)
         fname=[];
         obj.PsyInt=PsyInt(fname);
 
-
-
         % XXX
         % sort by trl & intrvl if exp
     end
     function obj=parse_stm_opts(obj)
         stmOpts=obj.stmOpts;
         flds=fieldnames(stmOpts);
-        obj.stmOpts=struct();
         P=obj.getStmP();
+        obj.stmOpts=struct();
         for i = 1:length(flds)
             fld=flds{i};
             obj.stmOpts.(fld)=Args.parse(struct(),P,stmOpts{fld});
@@ -221,10 +220,6 @@ methods(Access=private)
         obj.printOpts=struct('stringOpts',sOpts);
     end
     function init_psy(obj)
-        %vOpts=PtchsViewer.readConfig(obj.alias);
-        %pOpts=Psycho.readConfig(obj.alias);
-        %pp=vOpts{'psyOpts'};
-        %pOpts=pp.mergePref(pOpts,false,true);
         obj.Psy=Psycho(obj,obj.psyOpts);
         obj.bPsy=true;
 
@@ -297,7 +292,9 @@ methods
     function run(obj,start,bOnce)
         obj.errmsg={};
         obj.runFlag=1;
-        obj.exitflag=0;
+        obj.exitflag=false;
+        obj.bInit=true;
+
         CL=onCleanup(@() obj.exit()); % run exit on complete or error % XXX
         if nargin < 2 || isempty(start)
             start=1;
@@ -305,59 +302,26 @@ methods
         if nargin < 3
             bOnce=false;
         end
-        obj.bInit=true;
 
         obj.goto(start,true);
         obj.reset();
 
-
-        % PLOT
-        if obj.bPlot
-            obj.plot();
-        end
-
-
-        % PSY VISUAL
-        if obj.bPsy
-            obj.init_ptb();
-        end
-
-        %UPDATE
-        bUp=obj.Cmd.bUp;
-        obj.update(bUp);
-
-
         % FIRST DRAW
         if obj.bPsy
+            obj.init_ptb();
             obj.Psy.init_aux();
-            obj.update(bUp);
             obj.Psy.dispSep('RUN');
-            if strcmp(obj.mode,'view')
-                obj.drawPsy(bUp);
-            else
-                obj.Psy.present_keystart();
-            end
-        end
-
-        % PRINT
-        if obj.bPrint
-            obj.print();
-        end
-
-        if bOnce
-            return
         end
 
         while true
             obj.main();
             obj.bInit=false;
-            if obj.exitflag
+            if obj.exitflag || bOnce
                 break
             end
         end
 
         obj.runFlag=0;
-
     end
     function obj=init_ptb(obj)
         lasterror('reset');
@@ -425,28 +389,9 @@ methods
     end
 end
 methods(Access=private)
-    function print(obj,bUp,msg)
+    function print(obj,bUp)
+        clc;
         obj.Info.print();
-    end
-    function bSuccess=update(obj,bUp,msg)
-        if ischar(bUp) && strcmp(bUp,'all')
-            bUp=struct('cmd',1,'im',1,'tex',1,'draw',1);
-        end
-
-        % CHECK FOR UPDATE
-        bSuccess=obj.bUpdate(bUp);
-        if ~bSuccess
-            return
-        end
-
-        % UPDATE IM
-        if bUp.im || bUp.Viewer
-            obj.reload();
-        end
-
-        % UPDATE INFO
-        obj.update_info(bUp);
-
     end
     function out=bUpdate(obj,bUp)
         out=false;
@@ -482,42 +427,64 @@ methods(Access=private)
     end
 %% MAIN
     function main(obj,bInit) % Indep
-        %obj.exitflag
+        %- READ
+        opts=obj.read();
 
-        % READ
-        obj.Psy.dispSep('RUN_END');
-        [exitflag,bUp,msg]=obj.Cmd.main();
-        if ~isempty(msg)
-            obj.append_msg(msg);
+        % UPDATE IM
+        if obj.bUp.im || obj.bUp.Viewer
+            obj.reload();
         end
-        if obj.exitflag || exitflag;
-            return
-        end
+        % UPDATE INFO
+        obj.update_info(obj.bUp);
 
-        % UPDATE
-        bSuccess=obj.update(bUp,msg);
-        if ~bSuccess
-            return
-        end
+        %- DRAW
+        obj.draw(opts);
 
-        % PRINT
+    end
+    function draw(obj,opts)
         if obj.bPrint
-            obj.print(bUp,msg);
+            obj.print(obj.bUp);
         end
-
 
         % PLOT
-        if obj.bPlot && (bUp.im || bUp.patch || bUp.Viewer)
+        if obj.bPlot && (obj.bUp.im || obj.bUp.patch || bUp.Viewer)
             obj.plot();
         end
 
         % DRAW
-        bgo =bUp.im || bUp.patch || bUp.Viewer;
-        %bgo =(bUp.cmd || bUp.str || bUp.im || bUp.patch || bUp.Viewer); % XXX TEX
-        if obj.bPsy && bgo
-            obj.drawPsy(bUp);
+        if obj.bPsy
+            obj.drawSubInt(opts);
+        end
+    end
+    function opts=read(obj)
+        if obj.bInit
+            obj.bUp=obj.Cmd.bUp; exitflag=0;
+        end
+        while ~obj.bInit
+            [noCmd,obj.bUp,msg]=obj.Cmd.main();
+            if ischar(obj.bUp) && strcmp(obj.bUp,'all')
+                obj.bUp=struct('cmd',1,'im',1,'tex',1,'draw',1);
+            end
+            if ~isempty(msg)
+                obj.append_msg(msg);
+            end
+            bSuccess=obj.bUpdate(obj.bUp);
+            %if opts.keyHold & ~(noCmd || obj.exitflag)
+            if ~bSuccess & ~(noCmd || obj.exitflag)
+                continue
+            end
+            break
         end
 
+        [obj.s,obj.int,obj.trl,opts]=obj.PsyInt.inc(obj.bInit);
+        opts=obj.optsAppend(opts,obj.bUp);
+
+        if ~strcmp(opts.key, obj.Cmd.getKeyDefName) || (~isempty(opts.mode) && ~strcmp(opts.mode,obj.Cmd.getMode))
+            obj.Cmd.changeKey(opts.key, opts.mode);
+        end
+
+        %- SUBINT
+        % XXX
     end
 %% DRAW
     function present_loading()
@@ -526,12 +493,6 @@ methods(Access=private)
         else
             % TODO
         end
-    end
-    function drawPsy(obj,bUp)
-        %nS=obj.PsyInt.getNSub;
-        [opts,name]=obj.PsyInt.getSubOpts(obj.int,obj.s);
-        opts=obj.optsAppend(opts,bUp);
-        obj.runSubInt(opts,name);
     end
     function opts=optsAppend(obj,opts,bUp)
         % TODO GEN THIS
@@ -554,7 +515,6 @@ methods(Access=private)
         end
     end
     function opts=optsAppend_fun(obj,opts,name)
-        % XXX check
         if ~ismember(name,opts.reset);
             opts.reset{end+1}=name;
         end
@@ -562,23 +522,18 @@ methods(Access=private)
             opts.draw{end+1}=name;
         end
     end
-    function runSubInt(obj,opts,name)
+    function drawSubInt(obj,opts)
         if opts.t ~= 0 && obj.t ~= opts.t
             return
         elseif opts.modt ~= 0 && mod(obj.t,opts.modt)~=0
             return
         end
 
-        % KEY-CHANGE
-        if ~strcmp(opts.key, obj.Cmd.getKeyDefName) || (~isempty(opts.mode) && ~strcmp(opts.mode,obj.Cmd.getMode))
-            obj.Cmd.changeKey(opts.key, opts.mode);
-        end
-
         % IMS
         obj.get_ims(opts);
 
         % DRAW
-        obj.Psy.draw_subInt(opts);
+        obj.Psy.draw(opts);
 
         % HOOK
         if ~isempty(opts.hook)
@@ -603,17 +558,20 @@ methods(Access=private)
     end
     function map=get_ims_stm(obj,name)
         opts=obj.stmOpts.(name);
-        flds=fieldnames(opts);
 
         % META
-        if ischar(opts.XYpix) && strcmp(opts.XYpix,'@Ptch')
-            opts.XYpix=obj.Ptchs.ptch.win.win.posXYpix;
+        if ischar(opts.XYpix)
+            if strcmp(opts.XYpix,'@Ptch')
+                opts.XYpix=obj.Ptchs.ptch.win.win.posXYpix;
+            elseif strcmp(opts.WHpix,'@VDisp')
+                opts.XYpix=obj.Psy.PTB.VDisp.ctrXYpix;
+            end
         end
         if ischar(opts.WHpix)
             if strcmp(opts.WHpix,'@Ptch')
                 opts.WHpix=obj.Ptchs.ptch.win.win.WHpix;
-            elseif strcmp(opts.WHpix,'@wdwXYpix')
-                opts.WHpix=obj.Psy.PTB.wdwXYpix;
+            elseif strcmp(opts.WHpix,'@VDisp')
+                opts.WHpix=obj.Psy.PTB.VDisp.WHpix;
             end
         end
         if ischar(opts.duration) && strcmp(opts.duration,'@Ptch')
@@ -655,6 +613,7 @@ methods(Access=private)
         obj.Psy.update_im(name,[],map);
         obj.Psy.update_geom(name,[],opts.XYpix,opts.WHpix);
         obj.Psy.update_duration(name,[],opts.duration);
+        obj.Psy.update_priority(name,[],opts.priority);
     end
     function sbs=im_to_sbs(obj,map)
         sbs=cell(1,2);
@@ -897,6 +856,23 @@ methods
         end
     end
 
+%% CONVENIENCE
+    function out=el(obj,name,num)
+        if nargin < 3
+            num=1;
+        end
+        out=obj.Psy.A.(name){num};
+        if ~isempty(out.Obj)
+            out=out.Obj;
+        end
+    end
+    function out=El(obj,name,num)
+        if nargin < 3
+            num=1;
+        end
+        out=obj.Psy.A.(name){num};
+    end
+
 end
 methods(Access=?Psycho)
     function wait(obj,wTime,bLoadTime)
@@ -918,6 +894,7 @@ end
 methods(Static)
     function P=getStmP()
         P={...
+            'priority',[],'Num.is'; ...
             'buffORptch',[],'ischar_e'; ...
             'mode',      'sng','ischar_e'; ...
             'src',       'img','ischar_e'; ...

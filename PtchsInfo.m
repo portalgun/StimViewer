@@ -38,6 +38,7 @@ properties
     filterInfo
     srtInfo
     indexInfo
+    trlInfo
 
     % FLAG
     flagInfo
@@ -159,6 +160,7 @@ methods
             obj.srtInfo='';
         end
 
+        obj.trlInfo=[num2str(obj.trl) ' / ' num2str(obj.nTrial)];
         obj.indexInfo=PtchsInfo.struct2TableFun(fI);
     end
     function update_Flags(obj)
@@ -448,16 +450,22 @@ methods
         else
             STR={};
         end
+        bStart=true;
         for i = 1:length(list)
             if isempty(obj.(list{i}))
                 continue
             end
 
             %% DIVIDER
-            div=obj.get_div(list{i},opts);
+            if bStart
+                div='';
+                bStart=false;
+            else
+                div=obj.get_div(list{i},opts);
+            end
 
             %% TITLE
-            titl=obj.get_div(list{i},opts);
+            titl=obj.get_title(list{i},opts);
 
             if strcmp(opts.type,'string')
                 STR=[STR ...
@@ -471,21 +479,23 @@ methods
                      obj.(list{i})];
             end
         end
+        %while startsWith(STR,newline)
+        %    STR=STR(2:end);
+        %end
     end
     function div=get_div(obj,infoName,opts)
         if ismember(infoName, opts.newlines) || ismember('all', opts.newlines)
-            div=newline;
-        end
-        if ismember(infoName, opts.div) || ismember('all', opts.div)
+            div=[newline newline];
+        elseif ismember(infoName, opts.div) || ismember('all', opts.div)
             div=PtchsInfo.div;
         elseif ismember(infoName,opts.doubNewlines)|| ismember('all', opts.doubNewlines)
-            div=[newline newline];
+            div=[newline newline newline];
         else
-            div='';
+            div=newline;
         end
     end
-    function div=get_title(obj,infoName,opts)
-        if ismember(infoName,titles)
+    function titl=get_title(obj,infoName,opts)
+        if ismember(infoName,opts.titles) || ismember('all',opts.titles)
             titl=[':' Str.Alph.upper(strrep(infoName,'Info','')) ':' newline ];
         else
             titl='';
