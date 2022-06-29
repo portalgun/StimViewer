@@ -1317,7 +1317,7 @@ methods
         Oflds=fieldnames(Opts);
 
         oflds=fieldnames(opts);
-        oflds(ismember_cell(oflds,[Oflds; {'text';'name';'num';'Opts'}]))=[];
+        oflds(ismember_cell(oflds,[Oflds {'text','name','num','Opts'}]))=[];
         for i = 1:length(oflds)
             Opts.(oflds{i})=opts.(oflds{i});
         end

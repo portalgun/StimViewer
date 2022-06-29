@@ -1,4 +1,4 @@
-classdef Exp < handle
+classdef StimExp < handle
 properties
     % PARAM
     nTrial
@@ -44,7 +44,7 @@ events
     TrialComplete
 end
 methods
-    function obj=Exp(PAR)
+    function obj=StimExp(PAR)
         Opts=PAR.Opts.Exp;
         flds=fieldnames(Opts);
         for i = 1:length(flds)

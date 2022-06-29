@@ -1,257 +1,241 @@
-classdef Rsp < handle & trlInt
+classdef Rsp < handle
 properties
+    Blk
 
-    % OUT
-    answers % trlint
-    responses
-    RcmpChs
-    bCorrect
+    bSound
+    bRspOnly
+    magORval
+    cmpNum
 
-    cmpIntrvl
-    stdX
+    cndInd
+    lvlInd
+    cmpInd
+
+    nTrials
+    trial
     cmpX
+    stdX
+    cmpInt
+    answers
+    bCtr
 
-    % PARAMS
-    bCheckCorrect % trlint
-    bSoundCorrect % trlint
-    bRecordAnswer
-    bRecordResponse
-    bRecordRcmpChs
-    bFlip
-    nIntrvl2Rsp % number of intervals with responses
-    method
-    expType
+    R
+    RTime
+    bRCmp
+    bRCorrect
+    flags
 
-end
-properties(Hidden=true)
-    nTrial
-    flags % XXX
-    FlagNames % XXX
-    bPsycho=0
-end
-events
+    Tbl
+    Curve
 end
 methods
-    function obj=Rsp(PARorOpts);
-        if isa(PARorOpts,'psycho')
-            obj.parse_psycho(PARorOpts);
+    function obj=Rsp(blk,Opts)
+        obj.Blk=blk;
+        obj.parse(Opts);
+        obj.init();
+    end
+
+    function init(obj)
+        obj.nTrials=max(obj.Blk.blk.unique('trl'));
+        obj.trial=Vec.col(1:obj.nTrials);
+        obj.R=nan(obj.nTrials,1);
+        obj.RTime=nan(obj.nTrials,1);
+        obj.flags=zeros(obj.nTrials,1);
+        if ~obj.bRspOnly
+            obj.get_answers();
+        end
+    end
+    function parse(obj,Opts)
+        P=obj.getP();
+        Args.parse(obj,P,Opts);
+    end
+    function untable(obj)
+        tbl=obj.Table('cmpX','stdX','cmpInt','R','Rtime','bRCmp','bRCorrect','flags').ret();
+        obj.cmpX      = tbl(:,1);
+        obj.stdX      = tbl(:,2);
+        obj.cmpInt    = tbl(:,3);
+        obj.R         = tbl(:,4);
+        obj.RTime     = tbl(:,5);
+        obj.bRCmp     = tbl(:,6);
+        obj.bRCorrect = tbl(:,7);
+        obj.flags     = tbl(:,8);
+    end
+    function apply(obj,Rsp)
+        Rsp.untable();
+        if isequal(Rsp.cmpX,   obj.cmpX)   && ...
+           isequal(Rsp.stdX,   obj.stdX)   && ...
+           isequal(Rsp.cmpInt, obj.cmpInt) && ...
+           isequal(Rsp.answers,obj.answers);
+            ind=isnan(Rsp.R) && isnan(obj.R);
+            obj.R(ind)        = Rsp.R(ind);
+            obj.Rtime(ind)    = Rsp.Rtime(ind);
+            obj.bRCmp(ind)    = Rsp.bRCmp(ind);
+            obj.bRCorret(ind) = Rsp.RCorret(ind);
+            obj.flags(ind)    = Rsp.flags(ind);
+            out=true;
+        elseif nargout < 1
+            error('Uncompatible tables')
         else
-            Opts=PARorOpts;
-            obj=obj.parse_Opts(Opts);
+            out=false;
         end
+    end
+    function apply_data(obj,data)
+        [stdX,cmpX,bRCmp]=data{'stdX','cmpX','bRCmp'};
+        cmpX=Rsp.rmUniformCols(cmpX);
+        stdX=Rsp.rmUniformCols(stdX);
+        Opts.bPlotCI=false;
+        Opts.bPlot=true;
+        obj.Curve=psyCurve(stdX, cmpX, bRCmp,Opts);
+    end
+    function get_answers(obj)
+        obj.bRCorrect=nan(obj.nTrials,1);
+        obj.bRCmp=nan(obj.nTrials,1);
+        obj.cmpInt=obj.Blk.get_cmpIntrvl(obj.trial,obj.cmpNum);
+        obj.cndInd=obj.Blk('intrvl',1,'cndInd').ret();
+        obj.lvlInd=obj.Blk('intrvl',1,'lvlInd').ret();
+        obj.cmpInd=obj.Blk('intrvl',1,'cmpInd').ret();
+        obj.cmpX=obj.Blk.trial_to_cmpX(obj.trial,obj.cmpNum);
+        obj.stdX=obj.Blk.trial_to_stdX(obj.trial);
 
-    end
-    function obj=parse_psycho(psycho)
-        PAR=PARorOpts;
-        obj.bPsycho=1;
-        I=PAR.EXP.nIntrvl2Rsp;
-        % XXX opts ?
-        if obj.bPsycho && ~exist('nTrial','var') || isempty(nTrial)
-            nTrial=PAR.EXP.nTrial;
+        if strcmp(obj.magORval,'mag')
+            obj.cmpX=abs(obj.cmpX);
+            obj.stdX=abs(obj.stdX);
         end
-        if obj.bPsycho && (~exist('nIntrvl2Rsp','var') || isempty(nIntrvl2Rsp))
-            nIntrvl=PAR.EXP.nIntrvl;
-        elseif ~exist('nIntrvl2Rsp','var') || isempty(nIntrvl2Rsp)
-            nIntrvl2Rsp=1;
-        end
-        obj.trlint_init(PAR); %handles update and all that
-    end
-    function obj=parse_Opts(obj,Opts)
-        names={...
-                  'bCheckCorrect', 1, 'Num.isBinary'...
-                  ;'bSoundCorrect', 1, 'Num.isBinary'...
-                  ;'bRecordResponse', 1, 'Num.isBinary'...
-                  ;'bRecordAnswer', 1, 'Num.isBinary'...
-                  ;'bRecordRcmpChs', 1, 'Num.isBinary'...
-                  ;'method', 'val', 'ischar'...
-                  ;'bFlip', 0, 'Num.isBinary'...
-                  ;'nIntrvl2Rsp', 1, 'Num.isInt'...
-                  ;'cmpX', [], ''...
-                  ;'stdX', [], ''...
-                  ;'cmpIntrvl', [], ''...
-                  ;'expType', [], ''...
-                  ;'nTrial', [], ''...
-        };
-        obj=Args.parse(obj,names,Opts);
-        if isempty(obj.nTrial) && ~isempty(obj.stdX)
-            obj.nTrails=obj.stdX;
-        end
-        if ~isempty(obj.nTrial)
-            obj.responses=nan(obj.nTrial,obj.nIntrvl2Rsp);
-            obj.bCorrect=nan(obj.nTrial,obj.nIntrvl2Rsp);
-        end
+        cmpX=obj.cmpX(:,1);
+        stdX=obj.stdX(:,1);
 
-        if ~isempty(obj.cmpX) && ~isempty(obj.stdX)
-            ind=Set.isUniform(obj.cmpX,1) & Set.isUniform(obj.stdX,1);
-            obj.stdX(:,ind)=[];
-            obj.cmpX(:,ind)=[];
-        end
-        if obj.bRecordRcmpChs
-            obj.RcmpChs=nan(obj.nTrial,obj.nIntrvl2Rsp);
-        end
-        if strcmp(obj.expType,'2IFC') && ~isempty(obj.cmpIntrvl) &&  all(ismember(obj.cmpIntrvl,[1,2])) && any(ismember(obj.cmpIntrvl,2))
-            obj.cmpIntrvl=obj.cmpIntrvl-1;
-        end
-        obj.get_answers();
-    end
-    function obj=populate_rnd(obj)
-        obj.bSoundCorrect=false;
-        for t = 1:obj.nTrial
-        for int=1:obj.nIntrvl2Rsp
-            if strcmp(obj.expType,'2IFC')
-                keyValue=randi(2)-1;
-            end
-            obj.record(t,int,keyValue);
-        end
-        end
-    end
+        obj.answers=nan(size(obj.cmpInt));
 
-    function obj=record(obj,t,int,keyValue, answer)
-        if ~exist('int') || isempty(int)
-            int=1;
-        end
+        ind=cmpX > stdX & obj.cmpInt==1;
+        obj.answers(ind)=1;
 
-        if (~exist('answer','var') || isempty(answer))
-            answer=obj.answers(t,int);
-        else
-            obj.record_answer(answer,t,int);
+        ind=cmpX < stdX & obj.cmpInt==1;
+        obj.answers(ind)=2;
+
+        ind=cmpX > stdX & obj.cmpInt==2;
+        obj.answers(ind)=2;
+
+        ind=cmpX < stdX & obj.cmpInt==2;
+        obj.answers(ind)=1;
+
+        obj.bCtr=isnan(obj.answers);
+        obj.answers(obj.bCtr) = double(rand(sum(obj.bCtr),1) > 0.5)+1;
+    end
+    function respond(obj,trl,int,time)
+        obj.R(trl)=int;
+        obj.RTime(trl)=time;
+        if obj.bRspOnly
+            return
         end
-        obj.record_response(keyValue,t,int);
-        obj.get_correct(answer,t,int);
-        %[answer keyValue obj.bCorrect(t,int)]
-        if obj.bSoundCorrect
-            obj.sound(t,int);
-        end
-        if obj.bRecordRcmpChs
-            obj.get_Rcmp(keyValue,t,int);
-        end
-    end
-    function obj=get_answers(obj)
-        if strcmp(obj.expType,'2IFC') && ~isempty(obj.cmpX) && ~isempty(obj.stdX) && ~isempty(obj.cmpIntrvl)
-            obj.answers= Rsp.get_answers_2IFC(obj.stdX,obj.cmpX,obj.cmpIntrvl,obj.method);
-        elseif ~isempty(obj.nTrial)
-            obj.answers=zeros(obj.nTrial, obj.nIntrvl2Rsp);
-        end
-    end
-    function obj=record_answer(obj,answer,t,i)
-        obj.answer(t,i)=answer;
-    end
-    function obj=record_response(obj,keyValue,t,i)
-        obj.responses(t,i)=keyValue;
-    end
-    function obj=get_correct(obj,answer,t,i)
-        obj.bCorrect(t,i)=obj.responses(t,i)==answer;
-    end
-    function obj=get_Rcmp(obj,keyValue,t,i)
-        if obj.bFlip
-            obj.RcmpChs(t,i)=keyValue~=obj.cmpIntrvl(t,i);
-        else
-            obj.RcmpChs(t,i)=keyValue==obj.cmpIntrvl(t,i);
+        obj.bRCmp(trl)=int==obj.cmpInt(trl);
+        obj.bRCorrect(trl)=(int==obj.answers(trl)) || obj.bCtr(trl);
+
+        if obj.bSound
+            obj.sound(obj.bRCorrect(trl));
         end
     end
-    function obj=sound(obj,t,i)
-        if obj.bSoundCorrect & obj.bCorrect(t,i)
+    function setAllCorrect(obj)
+        bSound=obj.bSound;
+        obj.bSound=false;
+
+        time=zeros(size(obj.answers));
+        obj.respond(obj.trial,obj.answers,time);
+
+        obj.bSound=bSound;
+    end
+    function [cmp,std,int,answer,flag]=getTrial(obj,trl)
+        cmp=obj.cmpX(trl);
+        std=obj.stdX(trl);
+        int=obj.cmpInt(trl);
+        answer=obj.answers(trl);
+        flag=obj.flags(trl);
+    end
+    function [TBL,ind]=finalize(obj)
+        key=  { 'trial',  'cmpX',   'stdX',   'cmpInt', 'R',      'RTime',  'bRCmp',     'bRCorrect', 'flags'};
+        types={ 'uint16', 'double', 'double', 'uint8',  'double', 'double', 'logical',   'logical',   'uint8'};
+        ind=isnan(obj.bRCmp);
+        tbl=cell(1,length(key));
+        O=Obj.copy(obj);
+        for i = 1:length(key)
+            O.(key{i})(ind,:)=[];
+            O.(key{i})=cast(O.(key{i}),types{i});
+            tbl{1,i}=O.(key{i});
+        end
+        obj.Tbl=Table(tbl,key,types);
+        if nargout > 0
+            TBL=obj.Tbl;
+            ind=find(ind);
+        end
+    end
+    function obj=sound(obj,bCorrect)
+        if isnan(bCorrect)
             obj.sound_correct();
-        elseif obj.bSoundCorrect & ~obj.bCorrect(t,i)
+        elseif  bCorrect
+            obj.sound_correct();
+        else
             obj.sound_incorrect();
         end
     end
-    function obj = sound_correct(obj)
-        freq = 0.73; 
-        sound(sin(freq.*[0:1439]).*cosWindowFlattop([1 1440],720,720,0));
+    function inc_flag(obj,trl)
+        obj.flags(trl)=obj.flags(trl)+1;
     end
-    function obj = sound_incorrect(obj)
-        freq = 0.73/2; 
-        sound(sin(freq.*[0:1439]).*cosWindowFlattop([1 1440],720,720,0));
+    function dec_flag(obj,trl)
+        obj.flags(trl)=obj.flags(trl)-1;
     end
-    function OUT=return_OUT(obj,bRmNans)
-        if ~exist('bRmNans','var')
-            bRmNans=[];
+    function reset_flag(obj,trl)
+        obj.flags(trl)=0;
+    end
+    function plotCurve(obj,varargin)
+        if isempty(obj.Tbl)
+            obj.finalize();
         end
-        OUT=Rsp.return_OUT_fun(obj,bRmNans);
-        %R=exp.RSP.responses;
-        %if size(R,2) > 1
-        %    R(:, ~any(R,1))=[];
-        %end
-        %if all(ismember(R,[0,1]))
-        %    R=R+1;
-        %end
+        Tbl=obj.Tbl;
+        if nargin > 1
+            Tbl=obj.Tbl(varargin{:});
+        end
+        [stdX,cmpX,bRCmp]=obj.Tbl{'stdX','cmpX','bRCmp'};
+
+        Opts.bPlotCI=false;
+        obj.Curve=psyCurve(stdX, cmpX, bRCmp,Opts);
+
+        uNames=obj.Blk.lookup.lvl.KEY(2:end);
+        U=EUnits(uNames{:});
+
+        str=obj.Curve.stdstr(U{'mult','name'},true);
+        Fig.new();
+        obj.Curve.Plot(U{1,'meas','units','mult','frmt'}{:});
+        title(str);
+        axis square;
     end
 end
-methods(Static=true)
-    function OUT=return_OUT_fun(obj,bRmNans)
-        if ~exist('bRmNans','var') || isempty(bRmNans)
-            bRmNans=0;
+methods(Static)
+    function X=rmUniformCols(X)
+        n=size(X,2);
+        ind=false(1,n);
+        for i = n
+            ind(i)=all(X(:,i)==X(1,i));
         end
-        OUT=struct();
-        OUT.R=obj.responses;
-        OUT.answers=obj.answers;
-        OUT.bCorrect=obj.bCorrect;
-        if obj.bRecordRcmpChs
-            OUT.RcmpChosen=obj.RcmpChs;
-        end
-        if ~isempty(obj.cmpIntrvl)
-            OUT.cmpIntrvl=obj.cmpIntrvl;
-        end
-        if ~isempty(obj.cmpX)
-            OUT.cmpX=obj.cmpX;
-        end
-        if ~isempty(obj.stdX)
-            OUT.stdX=obj.stdX;
-        end
-        if ~bRmNans
-            return
-        end
-
-        flds=fieldnames(OUT);
-        indNans=false(size(OUT.R));
-        for i = 1:length(flds)
-            fld=flds{i};
-            indNans=indNans|isnan(OUT.(fld));
-        end
-        for i = 1:length(flds)
-            fld=flds{i};
-            OUT.(fld)(indNans,:)=[];
-        end
+        X(:,ind)=[];
     end
-    function RcmpChs=get_RcmpChs(R,cmpIntrvl,bFlip)
-        if ~exist('bFlip','var')
-            bFlip=0;
-        end
-        if bFlip
-            RcmpChs=R~=cmpIntrvl;
-        else
-            RcmpChs=R==cmpIntrvl;
-        end
+    function P=getP()
+        P={...
+            ;'bRspOnly',0,'isBinary'...
+            ;'magORval',[], 'ischar_e'...
+            ;'bSound', 1, 'Num.isBinary'...
+            ;'cmpNum',1,'Num.isBinary'
+        };
     end
-    function [correct,answer] = get_correct_2IFC(R,stdX,cmpX,cmpIntrval,method)
-        %function [correct,answer] = get_correct_2IFC(R,stdX,cmpX,cmpIntrvl)
-        answer=Rsp.get_answers_2IFC(stdX,cmpX,cmpIntrvl,method);
-        % cmpIntrvl is binary
-        correct=R==answer;
+    function sound_equal()
+        freq = 0.5475;
+        sound(sin(freq.*[0:1439]).*cosWindowFlattop([1 1440],720,720,0));
     end
-    function answers= get_answers_2IFC(stdX,cmpX,cmpIntrvl,method)
-        if all(ismember(cmpIntrvl,[1,2])) && any(ismember(cmpIntrvl,2))
-            cmpIntrvl=cmpIntrvl-1;
-        end
-        if strcmp(method,'mag')
-            cmpX=abs(cmpX);
-            stdX=abs(stdX);
-            %tmp=cmpX;
-            %cmpX=abs(stdX); % NOTE FLIPPED
-            %stdX=abs(tmp);
-        end
-        answers=zeros(size(cmpIntrvl));
-        ind=cmpX > stdX;
-        answers(ind)=cmpIntrvl(ind);
-
-        ind=cmpX < stdX;
-        answers(ind)=~cmpIntrvl(ind);
-
-        ind=cmpX == stdX;
-        ind(:,sum(ind,1)==size(ind,1))=[];
-
-        answer(ind) = double(rand(sum(ind),1) > 0.5);
+    function obj = sound_correct()
+        freq = 0.73;
+        sound(sin(freq.*[0:1439]).*cosWindowFlattop([1 1440],720,720,0));
+    end
+    function obj = sound_incorrect()
+        freq = 0.3650;
+        sound(sin(freq.*[0:1439]).*cosWindowFlattop([1 1440],720,720,0));
     end
 end
 end

@@ -26,13 +26,13 @@ methods(Hidden)
         trls=trl:(trl+n-1);
 
         % Get needed trials
-        blkInd=obj.Blk.blk.find('trl',trls);
+        blkInd=obj.Blk.find('trl',trls);
         bBlkInd=false(size(obj.Ptchs.bLoadedB));
         bBlkInd(blkInd)=true;
 
         % GET NEEDED & NOT NEEDED
-        nInds=~obj.Ptchs.bLoadedB && blkInd;
-        nnInds=obj.Ptchs.bLoadedB && ~blkInd;
+        nInds=find(~obj.Ptchs.bLoadedB & bBlkInd);
+        nnInds=find(obj.Ptchs.bLoadedB & ~bBlkInd);
 
         obj.load(nInds,nnInds,start);
         time=obj.loadTime;
@@ -42,8 +42,8 @@ methods(Hidden)
         if nargin < 4 || isempty(startTime)
             startTime=get_secs;
         end
-        obj.load_patches(nInds);
-        obj.clear_patches(nnInds);
+        obj.Ptchs.load_patch(nInds);
+        obj.Ptchs.clear(nnInds);
 
         obj.loadTime=obj.get_secs()-startTime;
     end

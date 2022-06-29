@@ -10,6 +10,7 @@ properties
 
     seen
     bad
+    poor
     other
     nSeen
     nFlags
@@ -24,6 +25,7 @@ properties
 
     trl
     int
+    s
     stdX
     cmpX
     cmpIntrvl
@@ -33,46 +35,65 @@ properties
     fltrs
     fltrMode
 
+    lastTime
+    lastTimeStr=''
+    lastTrl=-1
+    lastInt=-1
+    lastS=-1;
+
     %-------
     % Filter
-    filterInfo
-    srtInfo
-    indexInfo
-    trlInfo
+    filterInfo=''
+    srtInfo=''
+    indexInfo=''
+    trlInfo=''
+
+    % selected
+    selInfo=''
+
+    % INT
+    intInfo=''
+    timeInfo=''
+    rspInfo=''
+    rspFlagInfo=''
+
 
     % FLAG
-    flagInfo
+    flagInfo=''
 
     % PTCH
-    idxInfo
-    srcInfo
-    blkInfo
+    idxInfo=''
+    srcInfo=''
+    blkInfo=''
+    statInfo=''
 
     % WIN
-    tfInfo
-    subjInfo
-    winInfo
+    tfInfo=''
+    subjInfo=''
+    winInfo=''
 
     % IM
-    phtInfo
-    imInfo
-    wdwInfo
+    phtInfo=''
+    imInfo=''
+    wdwInfo=''
 
     % CMD
-    cmdInfo
+    cmdInfo=''
     %STR
-    strInfo
+    strInfo=''
     %KEY
-    keyInfo
+    keyInfo=''
     %MSG
-    msg
+    msg=''
 
     % CONSTANT
-    hashInfo
-    genOpts
-    dbInfo
+    hashInfo=''
+    genOpts=''
+    dbInfo=''
 
     STR
+    cmdHeightF=38; % XXX TODO GET BAED ON PTB FONT
+    cmdMode='normal'
 end
 properties(Access=private)
     Ptchs
@@ -81,7 +102,7 @@ properties(Access=private)
     Flags
     Filter
     Blk
-    Viewer
+    Parent
     bInit=true
 end
 properties(Constant=true, Hidden)
@@ -89,7 +110,7 @@ properties(Constant=true, Hidden)
 end
 methods
     function obj=PtchsInfo(viewer)
-        obj.Viewer=viewer;
+        obj.Parent=viewer;
         obj.Cmd=viewer.Cmd;
         obj.Ptchs=viewer.Ptchs;
         obj.Flags=viewer.Flags;
@@ -101,26 +122,115 @@ methods
             obj.bInit=false;
         end
 
-        flds=fieldnames(bUp);
-        for i = 1:length(flds)
-            if ~bUp.(flds{i}) || ismember(flds{i},{'tex'})
-                continue
-            end
-
-            meth=['update_vals_' flds{i}];
-            if ismethod(obj,meth)
-                obj.(meth)();
-            end
-
-            meth=['update_' flds{i}];
-            obj.(meth)();
+        obj.update_time();
+        if ~isempty(obj.msg)
+            obj.update_msg();
+        end
+        for i = 1:numel(bUp)
+            obj.(['update_' bUp{i}])();
         end
     end
-%% VALS
-    function update_vals_patch(obj)
-        obj.subj=obj.Viewer.PTB.VDisp.SubjInfo;
+    function update_msg(obj)
+        if isempty(obj.msg) || (iscell(obj.msg) && all(cellfun(@isempty,obj.msg)))
+            obj.msg=[' '];
+            return
+        end
+        if iscell(obj.msg)
+            obj.msg(cellfun(@isempty,obj.msg))=[];
+            if ~isempty(obj.msg);
+                obj.msg=strjoin(obj.msg,newline);
+            end
+        end
+        if isempty(obj.msg) || (iscell(obj.msg) && all(cellfun(@isempty,obj.msg)))
+            obj.msg=' ';
+        end
     end
-    function update_vals_Filter(obj)
+    function append_msg(obj,msg)
+        if isempty(msg)
+            return
+        end
+        if iscell(obj.msg)
+            obj.msg(cellfun(@isempty,obj.msg))=[];
+            if ~isempty(obj.msg);
+                obj.msg=[obj.msg strjoin(obj.msg,newline)];
+            end
+        else
+            obj.msg=msg;
+        end
+    end
+    function update_time(obj)
+        s=obj.Parent.PsyInt.sStartT;
+        if s==0
+            t=s;
+        else
+            t=round(GetSecs-s,2);
+        end
+        if isempty(obj.lastTrl)
+            flds={'trl','int','s'};
+            for i = 1:length(flds)
+                obj.(flds{i})=obj.Parent.PsyInt.(flds{i});
+            end
+            flds={'lastTrl','lastInt','lastS'};
+            for i = 1:length(flds)
+                obj.(flds{i})=-1;
+            end
+        end
+        if ~isequal(obj.lastTrl,obj.trl) || obj.lastInt > obj.int || obj.lastS > obj.s
+            obj.lastTimeStr='';
+        elseif obj.int > obj.lastInt || obj.s > obj.lastS
+            obj.lastTimeStr=[obj.Parent.PsyInt.lastTime newline];
+        end
+
+        obj.timeInfo=[obj.lastTimeStr sprintf('%6.2f',t)];
+        %if s~=0
+        %    obj.gdTime=obj.timeInfo;
+        %end
+        obj.lastTime=t;
+        obj.lastTrl=obj.trl;
+        obj.lastInt=obj.int;
+        obj.lastS=obj.s;
+    end
+%% INFO
+    function update_Im(obj)
+        obj.update_Psy();
+    end
+    function update_PsyInt(obj)
+    end
+    function update_Psy(obj)
+        h=obj.Parent.Psy.return_selected_params();
+        if isempty(h)
+            obj.selInfo='';
+            return
+        elseif h.type==0
+            obj.selInfo=obj.Parent.Im.getInfo(h.name);
+        end
+    end
+    function update_rsp(obj)
+        if obj.trl== 0
+            return
+        end
+        [cmp,std,int,answer,flag]=obj.Parent.Rsp.getTrial(obj.trl);
+        rI=struct();
+        rI.cmp=cmp;
+        rI.std=std;
+        rI.int=int;
+        rI.answer=answer;
+        obj.rspInfo=PtchsInfo.struct2TableFun(rI);
+
+        obj.rspFlagInfo=num2str(flag);
+
+        %obj.Parent.Ptchs.Blk('trl',obj.trl)
+        %clc
+        %if rI.int==2
+        %    disp(['std ' num2str(rI.std)])
+        %    disp(['cmp ' num2str(rI.cmp)])
+        %elseif rI.int==1
+        %    disp(['cmp ' num2str(rI.cmp)])
+        %    disp(['std ' num2str(rI.std)])
+        %end
+        %disp(['answer ' num2str(rI.answer)])
+    end
+    function update_Filter(obj)
         [obj.pidx,obj.N]=obj.Filter.getPidx();
         [obj.rel,obj.n]=obj.Filter.getPos();
         obj.abs=obj.Filter.getAbs();
@@ -129,23 +239,12 @@ methods
         obj.srtrs=obj.Filter.srtrs;
         obj.fltrs=obj.Filter.fltrsStr;
 
-        if strcmp(obj.Viewer.mode,'IFC')
+        if strcmp(obj.Parent.mode,'IFC')
             obj.stdX=obj.Ptchs.get_stdX(obj.trl);
             obj.cmpX=obj.Ptchs.get_cmpX(obj.trl,1);
             obj.cmpIntrvl=obj.Ptchs.get_cmpIntrvl(obj.trl);
         end
-    end
-    function update_vals_Flags(obj)
-        [obj.pidx,obj.N]=obj.Filter.getPidx();
-        obj.seen=obj.Flags.seen(obj.pidx);
-        obj.bad=obj.Flags.bad(obj.pidx);
-        obj.other=obj.Flags.other(obj.pidx);
 
-        obj.nSeen=sum(obj.seen);
-        obj.nFlags=numel(obj.Flags.seen);
-    end
-%% INFO
-    function update_Filter(obj)
         % FROM FILTER
         fI=struct();
 
@@ -160,83 +259,69 @@ methods
             obj.srtInfo='';
         end
 
-        obj.trlInfo=[num2str(obj.trl) ' / ' num2str(obj.nTrial)];
         obj.indexInfo=PtchsInfo.struct2TableFun(fI);
     end
     function update_Flags(obj)
-        if nargin < 2
-            obj.pidx=obj.Filter.getPidx();
-        end
+        [obj.pidx,obj.N]=obj.Filter.getPidx();
+        obj.seen=obj.Flags.seen(obj.pidx) > 1;
+        obj.bad=obj.Flags.bad(obj.pidx);
+        obj.poor=obj.Flags.poor(obj.pidx);
+        obj.other=obj.Flags.other(obj.pidx);
+
+        obj.nSeen=sum(obj.Flags.seen > 0);
+        obj.nFlags=numel(obj.Flags.seen);
+
         fI.seen=obj.seen;
         fI.bad=obj.bad;
+        fI.poor=obj.poor;
         fI.other=obj.other;
         obj.flagInfo=PtchsInfo.struct2TableFun(fI);
     end
-    function update_cmd(obj)
-        cmd=obj.Cmd.lastCmd{end};
-        if (~iscell(cmd) && isempty(cmd)) || (iscell(cmd) && all(cellfun(@isempty,cmd)))
-            obj.cmdInfo=['>  '];
-        elseif ischar(cmd)
-            obj.cmdInfo=['>  ' cmd];
-        else
-            obj.cmdInfo=['>  ' strjoin(cmd,[newline '>  '])];
-        end
-        %val='>';
+    function update_int(obj)
+        [obj.trl,obj.int,obj.s,intInd,sName]=obj.Parent.PsyInt.get_ints();
+        obj.trl=obj.Parent.trl;
+        obj.intInfo=sprintf('%3d.%02d.%02d \n%s',obj.trl,obj.int,obj.s,sName);
+        obj.trlInfo=[num2str(obj.trl) ' / ' num2str(obj.nTrial)];
     end
-    function update_Viewer(obj)
+    function update_Parent(obj)
         return
     end
+%% CMD
     function update_str(obj)
-        strInfo=struct();
-        [str, pos, mode]=obj.Cmd.getString;
-        b=str(1:pos-1);
-        e=str(pos:end);
-
-        moude=obj.Cmd.getMode();
-        if moude=='k'
-            cmd=[ str '-' ];
-        elseif moude=='c'
-            cmd=['>> ' b '|' e];
-        else
-            cmd=[moude '<'];
+        bCursor=true; % XXX
+        [obj.strInfo,pos]=obj.Cmd.getPrompt(bCursor);
+    end
+    function update_cmd(obj)
+        switch(obj.cmdMode)
+            case 'full'
+                height=obj.cmdHeightF;
+            case 'normal'
+                height=ceil(obj.cmdHeightF/8);
+            case 'none'
+                height=0;
         end
-
-        obj.strInfo=cmd;
+        botPos=0;  % TODO
+        obj.cmdInfo=obj.Cmd.getHist('cmd',height,botPos);
     end
     function update_key(obj)
         % FROM CMD AND KEY
-
-        mode=obj.Cmd.getLastMode;
-        literal=obj.Cmd.getKeys;
-        if iscell(literal)
-            literal=strjoin(literal,' ');
-        end
-        obj.keyInfo=[ ' ' mode ];
-        if obj.Viewer.bKey
-            obj.keyInfo=[obj.keyInfo ': ' literal ];
-        end
-        if obj.Viewer.bAct
-            lst=obj.Cmd.lastAct{end};
-            if isempty(lst) || all(cellfun(@isempty,lst))
-                return
-            end
-            if iscell(lst) && ~isempty(lst)
-                lst=strjoin(lst,' :: ');
-            end
-            obj.keyInfo=[obj.keyInfo ' :: ' lst];
-        end
+        bAct=strcmp(obj.Parent.Cmd.getMode,'cmd') || ~strcmp(obj.Parent.mode,'exp');
+        obj.keyInfo=obj.Cmd.getKeyEcho(bAct);
     end
 %% PTCH
     function update_constant(obj)
-
-        obj.stds   =obj.Ptchs.get_stdX();
-        obj.cmps   =obj.Ptchs.get_cmpX();
-        obj.intrvls=obj.Ptchs.get_cmpIntrvl();
         obj.nTrial=obj.Ptchs.get_nTrial();
         obj.bMotion=obj.Ptchs.get_bMotion();
 
+        %obj.stds   =obj.Ptchs.get_stdX();
+        %obj.cmps   =obj.Ptchs.get_cmpX();
+        %obj.intrvls=obj.Ptchs.get_cmpIntrvl();
+
 
         % HASHINFO
+        if isempty(obj.Ptchs.ptch)
+            obj.Ptchs.get_patch(1);
+        end
         srcInfo=obj.Ptchs.ptch.srcInfo;
         obj.hashInfo=PtchsInfo.struct2TableFun(srcInfo.hashes);
         %  TODO
@@ -252,6 +337,8 @@ methods
         pidx=obj.Filter.getPidx();
         %lidx=obj.Filter.getLoadidx();
 
+        obj.subj=obj.Parent.PTB.VDisp.SubjInfo;
+
         % IDX
         idxInfo=structfun(@(x) x(pidx,:),obj.Ptchs.idx,'UniformOutput',false);
         rmflds={'fname','PctrRC','seen','flags'};
@@ -261,7 +348,7 @@ methods
             end
         end
         idxInfo2=struct();
-        swtchflds={'binVal','val'};
+        swtchflds={'binVal','val','bExtra'};
         for i = 1:length(swtchflds)
             if ~isfield(idxInfo,swtchflds{i});
                 continue
@@ -282,7 +369,8 @@ methods
             srcInfo=rmfield(srcInfo,rmflds{i});
         end
         srcInfo2=struct();
-        swtchflds={'fname','PctrRC','binVal','Val'};
+        swtchflds={'fname','PctrRC'};
+        %swtchflds={'fname','PctrRC'},'binVal','Val'};
         for i = 1:length(swtchflds)
             srcInfo2.(swtchflds{i})=srcInfo.(swtchflds{i});
             srcInfo=rmfield(srcInfo,swtchflds{i});
@@ -297,13 +385,30 @@ methods
             obj.idxInfo='';
         end
 
+        % STATs
+        if numel(fieldnames(obj.Ptchs.Stats)) > 1
+            I=obj.Filter.getPidx();
+            flds=fieldnames(obj.Ptchs.Stats);
+            stats=struct();
+            for i = 1:length(flds)
+                FLD=obj.Ptchs.Stats.(flds{i});
+                if I <= size(FLD,1)
+                    stats.(flds{i})=FLD(I,:);
+                else
+                    stat.(flds{i})=nan;
+                end
+            end
+            obj.statInfo=PtchsInfo.struct2TableFun(stats);
+        end
+
         % BLK
         if obj.Ptchs.bBlk
             flds=obj.Ptchs.Blk.blk.KEY;
-            bind=ismember(flds,'P');
-            blk=obj.Ptchs.Blk.blk(obj.Filter.abs.blk).ret();
-            blk(:,bind)=[];
-            flds(:,bind)=[];
+            blk=obj.Ptchs.Blk(obj.Filter.abs.blk);
+            blk=[blk{:}];
+            %bind=ismember(flds,'P');
+            %blk(:,bind)=[];
+            %flds(:,bind)=[];
             bEll=false;
             bSpc=false;
             n=7;
@@ -359,7 +464,7 @@ methods
             obj.winInfo.(flds{i})=win.(flds{i});
         end
         obj.winInfo.WszRCPixOffset=obj.Ptchs.ptch.WszRCPixOffset;
-        obj.winInfo.trgtDsp=obj.Ptchs.ptch.win.trgtDSP;
+        obj.winInfo.trgtDspAM=obj.Ptchs.ptch.win.DspAM;
         obj.winInfo=PtchsInfo.struct2TableFun(obj.winInfo);
 
     end
@@ -402,22 +507,13 @@ methods
 
     end
 %% PRINT
-    function append_msg(obj,msg)
-        if ~isempty(msg)
-            obj.msg=msg;
-        end
-        if iscell(obj.msg)
-            obj.msg(cellfun(@isempty,obj.msg))=[];
-            if ~isempty(obj.msg);
-                obj.msg=strjoin(obj.msg,newline);
-            end
-        else
-        end
-        if isempty(obj.msg)
-            obj.msg=[' '];
-        end
-    end
     function OUT=format(obj,list,opts)
+        %if ismember_cell('strInfo',list)
+            %for i = 1:length(list)
+            %    list{i}
+            %    obj.(list{i})
+            %end
+        %end
         if nargin < 2
             list=[];
             STR=cell(1,1);
@@ -451,6 +547,31 @@ methods
             STR={};
         end
         bStart=true;
+        list(cellfun(@isempty,list))=[];
+        bAllNew=ismember_cell('all', opts.newlines);
+        if ~bAllNew
+            bAllDiv=ismember_cell('all', opts.div);
+            if ~bAllNew
+                bAllDoub=ismember_cell('all', opts.doubNewlines);
+                if ~bAllDoub
+                    if ~bAllNew
+                        bNew=ismember_cell(list, opts.newlines);
+                        if ~all(bNew)
+                            bDiv=ismember_cell(list, opts.div);
+                            if ~all(bDiv)
+                                bDoub=ismember_cell(list,opts.doubNewlines);
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        bTitleAll=ismember_cell('all',opts.titles);
+        if ~bTitleAll
+            bTitle=ismember_cell(list,opts.titles);
+        end
+
         for i = 1:length(list)
             if isempty(obj.(list{i}))
                 continue
@@ -460,18 +581,27 @@ methods
             if bStart
                 div='';
                 bStart=false;
+            elseif  bAllNew || bNew(i)
+                div=[newline newline];
+            elseif bAllDiv || bDiv(i)
+                div=PtchsInfo.div;
+            elseif bAllDoub || bDoub(i)
+                div=[newline newline newline];
             else
-                div=obj.get_div(list{i},opts);
+                div=newline;
             end
 
-            %% TITLE
-            titl=obj.get_title(list{i},opts);
+            if bTitleAll || bTitle(i)
+                titl=[':' upper(strrep(list{i},'Info','')) ':' newline ];
+            else
+                titl='';
+            end
 
             if strcmp(opts.type,'string')
                 STR=[STR ...
                      div ...
                      titl ...
-                     obj.(list{i})];
+                     obj.(list{i})]; %- SLOW
             else
                 STR=[STR;...
                      div;...
@@ -483,23 +613,7 @@ methods
         %    STR=STR(2:end);
         %end
     end
-    function div=get_div(obj,infoName,opts)
-        if ismember(infoName, opts.newlines) || ismember('all', opts.newlines)
-            div=[newline newline];
-        elseif ismember(infoName, opts.div) || ismember('all', opts.div)
-            div=PtchsInfo.div;
-        elseif ismember(infoName,opts.doubNewlines)|| ismember('all', opts.doubNewlines)
-            div=[newline newline newline];
-        else
-            div=newline;
-        end
-    end
     function titl=get_title(obj,infoName,opts)
-        if ismember(infoName,opts.titles) || ismember('all',opts.titles)
-            titl=[':' Str.Alph.upper(strrep(infoName,'Info','')) ':' newline ];
-        else
-            titl='';
-        end
     end
     function print(obj)
         for i = 1:length(obj.STR)
@@ -521,7 +635,11 @@ methods(Static=true, Access=private)
             flds=strcat(fieldnames(S),':');
         end
         %C=struct2cell(S);
-        C=builtin('struct2cell',S);
+        if isa(S,'Container')
+            C=builtin('struct2cell',S.get);
+        else
+            C=builtin('struct2cell',S);
+        end
         %if ~bAsIs
             ind=cellfun(@(x) (isnumeric(x) || iscell(x)) & numel(x) > 1,C);
             if any(ind)
@@ -577,7 +695,7 @@ methods(Static=true, Access=private)
         end
     end
     function list=getList(obj)
-        list=obj.Viewer.printOpts.stringOpts.list;
+        list=obj.Parent.printOpts.stringOpts.list;
     end
 end
 methods(Static)

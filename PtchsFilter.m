@@ -28,8 +28,8 @@ properties
     srtvals=struct('idx',false(0),'blk',false(0))
 
     msg
-end
-properties(Access=private)
+%end
+%properties(Access=private)
     fls=struct()
     rng=struct()
     bInit=false
@@ -52,13 +52,13 @@ methods
 
         obj.N.idx=size(obj.ptchs.fnames,1);
         obj.size.idx=uint32([obj.N.idx,1]);
-        obj.fls.idx=true(obj.size.idx);
+        obj.fls.idx=false(obj.size.idx);
         obj.rng.idx=uint32(1:obj.N.idx)';
         obj.idx=obj.ptchs.idx;
         obj.flds.idx=fieldnames(obj.ptchs.idx);
         obj.pind.idx=uint32(1:obj.N.idx)';
         obj.sind.idx=obj.rng.idx;
-        obj.bind.idx=obj.fls.idx;
+        obj.bind.idx=~obj.fls.idx;
         obj.abs.idx=[];
         obj.n.idx=obj.N.idx;
 
@@ -67,8 +67,8 @@ methods
             obj.flds.blk=obj.ptchs.Blk.blk.KEY;
             obj.N.blk=size(obj.Blk,1);
             obj.size.blk=[obj.N.blk,1];
-            obj.fls.blk=true(obj.size.blk);
-            obj.bind.blk=obj.fls.blk;
+            obj.fls.blk=false(obj.size.blk);
+            obj.bind.blk=~obj.fls.blk;
             obj.rng.blk=uint32(1:obj.N.blk)';
             obj.sind.blk=obj.rng.blk;
             obj.pind.blk=uint32(obj.Blk('P').ret);
@@ -79,8 +79,8 @@ methods
             obj.N.unq=size(obj.pind.unq,1);
             obj.rng.unq=uint32(1:obj.N.unq);
             obj.sind.unq=obj.rng.unq;
-            obj.fls.unq=true(obj.size.unq);
-            obj.bind.unq=obj.fls.unq;
+            obj.fls.unq=false(obj.size.unq);
+            obj.bind.unq=~obj.fls.unq;
             obj.abs.unq=[];
             obj.n.unq=obj.N.unq;
         end
@@ -128,6 +128,18 @@ methods
         end
     end
 %% MOVE
+    function abs=first(obj)
+        if ~obj.bInit
+            obj.init();
+        end
+        abs=obj.goto(1);
+    end
+    function abs=last(obj)
+        if ~obj.bInit
+            obj.init();
+        end
+        abs=obj.goto('last');
+    end
     function abs=prev(obj)
         if ~obj.bInit
             obj.init();
@@ -185,7 +197,9 @@ methods
 
 
         % FILTER
-        fltrMode=obj.refilter_fun();
+        if ~isempty(obj.fltrs)
+            fltrMode=obj.refilter_fun();
+        end
 
         % UPDATE BIND in refilter fun
 
@@ -237,7 +251,7 @@ methods
         % GET FLTRMODE
         if obj.ptchs.bBlk && ismember(fld,obj.flds.blk)
             fltrMode='blk';
-        elseif ismember(fld,obj.flds.idx)
+        elseif ismember(fld,obj.flds.idx) || ismember(fld,{'SEEN','seen','bad','other'});
             fltrMode='idx';
         else
             obj.msg=['Invalid field ' fld ];
@@ -280,9 +294,9 @@ methods
         if ~obj.bInit
             obj.init();
         end
-        obj.bind.idx=obj.fls.idx;
-        obj.bind.blk=obj.fls.blk;
-        obj.bind.unq=obj.fls.unq;
+        obj.bind.idx=~obj.fls.idx;
+        obj.bind.blk=~obj.fls.blk;
+        obj.bind.unq=~obj.fls.unq;
 
         obj.n.idx=obj.N.idx;
         obj.n.unq=obj.N.unq;
@@ -515,11 +529,11 @@ methods(Access=private)
         case 'blk'
             obj.bind.idx=obj.fls.idx;
             obj.bind.idx( obj.pind.blk(obj.bind.blk) )=true;
-            obj.bind.unq(:,end+1)=ismember(obj.pind.unq, obj.pind.idx(obj.bind.idx));
+            obj.bind.unq=ismember(obj.pind.unq, obj.pind.idx(obj.bind.idx));
 
             obj.n.idx=sum(obj.bind.idx);
             obj.n.unq=sum(obj.bind.unq);
-            obj.(lfld).blk=ismember(obj.pind.blk, obj.pind.idx(obj.(lfld).idx));
+            obj.(lfld).blk(:,end+1)=ismember(obj.pind.blk, obj.pind.idx(obj.(lfld).idx));
 
             % update fltrsvals
             obj.(lfld).idx=obj.fls.idx;
@@ -621,7 +635,7 @@ methods(Access=private)
         exitflag=false;
         msg=[];
 
-        % ARGS
+        % ARGS
         if isempty(bOR)
             bOR=false;
         end
@@ -639,6 +653,8 @@ methods(Access=private)
 
         if strcmp(fltrMode,'blk')
             vals=obj.Blk(fld).ret();
+        elseif ismember(fld,{'SEEN','seen','other','bad'})
+            vals=obj.ptchs.Flags.(fld);
         elseif strcmp(fltrMode,'idx')
             vals=obj.idx.(fld);
         end
